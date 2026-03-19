@@ -10,6 +10,16 @@ const httpClient = axios.create({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+/**
+ * Safely normalize employmentType — Dice returns it as either a string or array
+ */
+function normalizeEmploymentType(raw) {
+    if (!raw)
+        return undefined;
+    if (Array.isArray(raw))
+        return raw.join(", ");
+    return String(raw);
+}
 function normalizeJob(raw) {
     return {
         id: raw.id,
@@ -18,14 +28,14 @@ function normalizeJob(raw) {
         companyPageUrl: raw.companyPageUrl,
         location: raw.location,
         salary: raw.salary,
-        employmentType: raw.employmentType?.join(", "),
-        workplaceTypes: raw.workplaceTypes,
+        employmentType: normalizeEmploymentType(raw.employmentType),
+        workplaceTypes: Array.isArray(raw.workplaceTypes) ? raw.workplaceTypes : raw.workplaceTypes ? [String(raw.workplaceTypes)] : undefined,
         postedDate: raw.postedDate,
         detailsPageUrl: raw.detailsPageUrl ?? `${DICE_JOB_DETAIL_BASE}/${raw.id}`,
         summary: raw.summary,
         description: raw.description,
         applyUrl: raw.applyUrl,
-        skills: raw.skills,
+        skills: Array.isArray(raw.skills) ? raw.skills : raw.skills ? [String(raw.skills)] : undefined,
     };
 }
 function buildQueryParams(params) {
@@ -37,7 +47,7 @@ function buildQueryParams(params) {
         pageSize: Math.min(params.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE),
         pageNum: params.page ?? 1,
         language: "en",
-        ite: "true", // Include third-party employer results
+        ite: "true",
     };
     if (params.location)
         qs["location"] = params.location;
@@ -52,9 +62,6 @@ function buildQueryParams(params) {
 // ---------------------------------------------------------------------------
 // Public API functions
 // ---------------------------------------------------------------------------
-/**
- * Search Dice.com for jobs matching the given criteria.
- */
 export async function searchJobs(params) {
     const queryParams = buildQueryParams(params);
     let response;
@@ -86,31 +93,19 @@ export async function searchJobs(params) {
         hasMore: page * pageSize < total,
     };
 }
-/**
- * Get detailed information about a specific job by its Dice job ID or detail URL.
- */
 export async function getJobDetail(jobIdOrUrl) {
-    // Extract the job ID from a full URL if provided
     const jobId = jobIdOrUrl.startsWith("http")
         ? jobIdOrUrl.split("/job-detail/")[1]?.split("?")[0]
         : jobIdOrUrl;
     if (!jobId)
         throw new Error("Invalid job ID or URL provided.");
-    // We use the search API with a specific ID query since Dice doesn't expose
-    // a public single-job endpoint
     const detailUrl = `${DICE_JOB_DETAIL_BASE}/${jobId}`;
     try {
-        // Fetch the job detail page and extract structured data
         const result = await searchJobs({ query: jobId, pageSize: 5 });
         const match = result.jobs.find((j) => j.id === jobId || j.detailsPageUrl?.includes(jobId));
         if (match)
             return match;
-        // Return a minimal record with the URL if no match found in search
-        return {
-            id: jobId,
-            title: "Job Details",
-            detailsPageUrl: detailUrl,
-        };
+        return { id: jobId, title: "Job Details", detailsPageUrl: detailUrl };
     }
     catch {
         return { id: jobId, title: "Job Details", detailsPageUrl: detailUrl };
