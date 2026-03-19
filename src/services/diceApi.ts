@@ -6,74 +6,34 @@ import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
 } from "../constants.js";
-import type {
-  DiceJob,
-  DiceRawJob,
-  DiceSearchResponse,
-  SearchParams,
-  JobSearchResult,
-} from "../types.js";
+import type { DiceJob, DiceRawJob, DiceSearchResponse, SearchParams, JobSearchResult } from "../types.js";
+import { scrapeJobDetail } from "./jobScraper.js";
 
-// ---------------------------------------------------------------------------
-// HTTP client
-// ---------------------------------------------------------------------------
-const httpClient: AxiosInstance = axios.create({
-  timeout: 15000,
-  headers: REQUEST_HEADERS,
-});
+const httpClient: AxiosInstance = axios.create({ timeout: 15000, headers: REQUEST_HEADERS });
 
 // ---------------------------------------------------------------------------
 // Key Rotation Check
 // ---------------------------------------------------------------------------
-
-/**
- * Detects whether an API error is due to an expired/invalid API key.
- * Returns a detailed, actionable error message explaining how to fix it.
- */
 function handleApiError(err: unknown): never {
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
-
     if (status === 401 || status === 403) {
       throw new Error(
-        `🔑 DICE API KEY EXPIRED OR INVALID (HTTP ${status})\n\n` +
+        `DICE API KEY EXPIRED OR INVALID (HTTP ${status})\n\n` +
         `The x-api-key in constants.ts needs to be refreshed.\n\n` +
-        `HOW TO GET A NEW KEY (takes 2 minutes):\n` +
-        `1. Open Chrome and go to https://www.dice.com/jobs\n` +
-        `2. Press F12 to open DevTools → click the "Network" tab\n` +
-        `3. Search for any job (e.g. "Data Engineer")\n` +
-        `4. In Network tab, find a request to: job-search-api.svc.dhigroupinc.com\n` +
-        `5. Click that request → go to "Headers" tab\n` +
-        `6. Copy the value of the "x-api-key" request header\n` +
-        `7. Open: src/constants.ts\n` +
-        `8. Replace the value of "x-api-key" in REQUEST_HEADERS\n` +
-        `9. Run: npm run build\n` +
-        `10. Restart Claude Desktop\n`
+        `HOW TO GET A NEW KEY:\n` +
+        `1. Open Chrome → go to https://www.dice.com/jobs\n` +
+        `2. Press F12 → Network tab\n` +
+        `3. Search any job → find request to job-search-api.svc.dhigroupinc.com\n` +
+        `4. Click it → Headers tab → copy x-api-key value\n` +
+        `5. Paste into REQUEST_HEADERS in src/constants.ts\n` +
+        `6. Run: npm run build → Restart Claude Desktop`
       );
     }
-
-    if (status === 429) {
-      throw new Error(
-        `⏱️ RATE LIMITED by Dice.com (HTTP 429)\n` +
-        `Too many requests were made in a short time.\n` +
-        `Please wait 30-60 seconds and try again.`
-      );
-    }
-
-    if (status === 400) {
-      throw new Error(
-        `⚠️ BAD REQUEST (HTTP 400): Invalid search parameters.\n` +
-        `Check your query, location, or filter values and try again.`
-      );
-    }
-
-    throw new Error(
-      `❌ Dice API error (HTTP ${status ?? "unknown"}): ${err.message}\n` +
-      `If this persists, the API endpoint may have changed.\n` +
-      `Check DICE_API_BASE in src/constants.ts`
-    );
+    if (status === 429) throw new Error(`RATE LIMITED (HTTP 429) — wait 30-60 seconds and try again.`);
+    if (status === 400) throw new Error(`BAD REQUEST (HTTP 400) — check your query/filter values.`);
+    throw new Error(`Dice API error (HTTP ${status ?? "unknown"}): ${err.message}`);
   }
-
   throw new Error(`Unexpected error calling Dice API: ${String(err)}`);
 }
 
@@ -96,33 +56,23 @@ function normalizeJob(raw: DiceRawJob): DiceJob {
     location: raw.location,
     salary: raw.salary,
     employmentType: normalizeEmploymentType(raw.employmentType),
-    workplaceTypes: Array.isArray(raw.workplaceTypes)
-      ? raw.workplaceTypes
-      : raw.workplaceTypes ? [String(raw.workplaceTypes)] : undefined,
+    workplaceTypes: Array.isArray(raw.workplaceTypes) ? raw.workplaceTypes : raw.workplaceTypes ? [String(raw.workplaceTypes)] : undefined,
     postedDate: raw.postedDate,
     detailsPageUrl: raw.detailsPageUrl ?? `${DICE_JOB_DETAIL_BASE}/${raw.id}`,
     summary: raw.summary,
     description: raw.description,
     applyUrl: raw.applyUrl,
-    skills: Array.isArray(raw.skills)
-      ? raw.skills
-      : raw.skills ? [String(raw.skills)] : undefined,
+    skills: Array.isArray(raw.skills) ? raw.skills : raw.skills ? [String(raw.skills)] : undefined,
   };
 }
 
-
 function buildQueryParams(params: SearchParams): Record<string, string | number> {
   const qs: Record<string, string | number> = {
-    q: params.query,
-    countryCode: "US",
-    radius: params.radius ?? 30,
-    radiusUnit: "mi",
-    pageSize: Math.min(params.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE),
-    pageNum: params.page ?? 1,
-    language: "en",
-    ite: "true",
+    q: params.query, countryCode: "US", radius: params.radius ?? 30,
+    radiusUnit: "mi", pageSize: Math.min(params.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE),
+    pageNum: params.page ?? 1, language: "en", ite: "true",
   };
-  if (params.location)      qs["location"]                = params.location;
+  if (params.location)       qs["location"]               = params.location;
   if (params.employmentType) qs["filters.employmentType"] = params.employmentType;
   if (params.workplaceType)  qs["filters.workplaceTypes"] = params.workplaceType;
   if (params.postedDate)     qs["filters.postedDate"]     = params.postedDate;
@@ -130,16 +80,14 @@ function buildQueryParams(params: SearchParams): Record<string, string | number>
 }
 
 // ---------------------------------------------------------------------------
-// Public API functions
+// Public API
 // ---------------------------------------------------------------------------
 export async function searchJobs(params: SearchParams): Promise<JobSearchResult> {
   const queryParams = buildQueryParams(params);
   let response;
   try {
     response = await httpClient.get<DiceSearchResponse>(DICE_API_BASE, { params: queryParams });
-  } catch (err: unknown) {
-    handleApiError(err);
-  }
+  } catch (err: unknown) { handleApiError(err); }
   const total    = response.data?.count ?? 0;
   const rawJobs  = response.data?.data  ?? [];
   const page     = params.page ?? 1;
@@ -147,18 +95,16 @@ export async function searchJobs(params: SearchParams): Promise<JobSearchResult>
   return { totalCount: total, page, pageSize, jobs: rawJobs.map(normalizeJob), hasMore: page * pageSize < total };
 }
 
+/**
+ * Get full job details by scraping the Dice job detail page.
+ * Returns complete description, skills, salary, company, and apply link.
+ */
 export async function getJobDetail(jobIdOrUrl: string): Promise<DiceJob | null> {
-  const jobId = jobIdOrUrl.startsWith("http")
-    ? jobIdOrUrl.split("/job-detail/")[1]?.split("?")[0]
-    : jobIdOrUrl;
-  if (!jobId) throw new Error("Invalid job ID or URL provided.");
-  const detailUrl = `${DICE_JOB_DETAIL_BASE}/${jobId}`;
   try {
-    const result = await searchJobs({ query: jobId, pageSize: 5 });
-    const match  = result.jobs.find((j) => j.id === jobId || j.detailsPageUrl?.includes(jobId));
-    if (match) return match;
-    return { id: jobId, title: "Job Details", detailsPageUrl: detailUrl };
-  } catch {
-    return { id: jobId, title: "Job Details", detailsPageUrl: detailUrl };
+    return await scrapeJobDetail(jobIdOrUrl);
+  } catch (err: unknown) {
+    const jobId  = jobIdOrUrl.startsWith("http") ? jobIdOrUrl.split("/job-detail/")[1]?.split("?")[0] : jobIdOrUrl;
+    const detailUrl = `${DICE_JOB_DETAIL_BASE}/${jobId}`;
+    return { id: jobId ?? "unknown", title: "Job Details", detailsPageUrl: detailUrl };
   }
 }
