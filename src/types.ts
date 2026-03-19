@@ -1,4 +1,5 @@
 export interface DiceJob {
+  [key: string]: unknown;
   id: string;
   title: string;
   companyName?: string;
@@ -51,6 +52,7 @@ export interface SearchParams {
 }
 
 export interface JobSearchResult {
+  [key: string]: unknown;
   totalCount: number;
   page: number;
   pageSize: number;
