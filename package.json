@@ -1,0 +1,23 @@
+{
+  "name": "dice-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Dice.com job search — search contract, C2C, and full-time tech jobs",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["mcp", "dice", "jobs", "contract", "c2c"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "axios": "^1.7.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
